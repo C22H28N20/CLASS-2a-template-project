@@ -6,18 +6,17 @@ decision, not something to toggle per run.
 """
 
 from collections.abc import Callable
-
+import numpy as np
 from audio.pipeline import AudioPipeline
 from engines.base_engine import BaseEngine
-from engines.modern_gl_engine import ModernGLEngine
-from engines.pygame_engine import PygameEngine
 from engines.pyglet_engine import PygletEngine
+
 
 # Set this to whichever engine tier your project uses. See the README for
 # how/why this is a one-time project decision, not a runtime toggle.
-ENGINE: type[BaseEngine] = PygameEngine
+ENGINE: type[BaseEngine] = PygletEngine
 
-AUDIO_FILE = "audio/track.wav"
+AUDIO_FILE = "audio/audio (2).mp3"
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
 WINDOW_TITLE = "CLASS-2a Project"
@@ -64,14 +63,24 @@ def run_full_app():
     engine = ENGINE(width=WINDOW_WIDTH, height=WINDOW_HEIGHT, title=WINDOW_TITLE, target_fps=TARGET_FPS)
 
     pipeline = AudioPipeline(file_path=AUDIO_FILE)
+    feature_source = tolerate_not_implemented(pipeline.get_features)
     try:
-        pipeline.load()
-        feature_source = tolerate_not_implemented(pipeline.get_features)
+        signal = pipeline.load()
+        print(signal)
+        print(f"Loaded signal with {len(signal)} samples at {pipeline.sample_rate} Hz.") # type: ignore
+        pipeline.get_features()  # type: ignore
+        print("Mean_amplitude", amplitude := pipeline.get_features()["Mean_amplitude"])  # type: ignore
+        print("Highest_amplitude", highest_amplitude := pipeline.get_features()["Highest_amplitude"])  # type: ignore
+        print("Lowest_amplitude", lowest_amplitude := pipeline.get_features()["Lowest_amplitude"])  # type: ignore
+        duration = len(signal) / pipeline.sample_rate # type: ignore
+        print(f"Duration: {duration:.2f} seconds")  # type: ignore
+        print(type(pipeline.signal))
     except NotImplementedError:
         print(NOT_IMPLEMENTED_MESSAGE)
         feature_source = lambda: {}
 
-    engine.run(feature_source=feature_source)
+
+    engine.run(feature_source=feature_source) # type: ignore
 
 
 if __name__ == "__main__":
