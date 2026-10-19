@@ -14,7 +14,7 @@ class AudioPipeline:
         self.sample_rate = sample_rate
         self.signal = signal
         self._reported_window = False
-
+        self.position = 0  # Current read position in the signal, in samples
 
     def load(self) -> None:
         """Load the audio file at self.file_path via librosa, at
@@ -34,13 +34,22 @@ class AudioPipeline:
             raise NotImplementedError("AudioPipeline.load() must be called before get_features().")
 
         window_size = 1024
+        start = self.position
+        end = start + window_size
+        if end > len(self.signal):
+            raise ValueError("Not enough samples left in the signal to extract a full window.")
+        window = self.signal[start:end]
+        self.position = end  # Advance the read position for the next call
+
+
         if len(self.signal) < window_size:
             raise ValueError("The signal must contain at least 1024 samples.")
 
-        middle_start = (len(self.signal) - window_size) // 2
-        window = self.signal[middle_start:middle_start + window_size]
-        peak = np.max(np.abs(window))
-        rms = np.sqrt(np.mean(np.square(window)))
+        peak = float(np.max(np.abs(window)))
+        rms = float(np.sqrt(np.mean(np.square(window))))
+
+        
+        
 
         if not self._reported_window:
             print(f"Peak: {peak:.6f} | RMS: {rms:.6f}")
