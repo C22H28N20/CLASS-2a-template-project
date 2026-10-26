@@ -16,7 +16,7 @@ from engines.pyglet_engine import PygletEngine
 # how/why this is a one-time project decision, not a runtime toggle.
 ENGINE: type[BaseEngine] = PygletEngine
 
-AUDIO_FILE = "audio/audio (2).mp3"
+AUDIO_FILE = "audio/audio (3).mp3"
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
 WINDOW_TITLE = "CLASS-2a Project"
@@ -69,12 +69,20 @@ def run_full_app():
         print(signal)
         print(f"Loaded signal with {len(signal)} samples at {pipeline.sample_rate} Hz.") # type: ignore
         pipeline.get_features()  # type: ignore
+        pipeline.get_tempo()  # type: ignore
+        pipeline.get_peak()  # type: ignore
+        pipeline.get_rms()  # type: ignore
+        pipeline.get_window()  # type: ignore
+        print("Signal length:", len(signal))  # type: ignore
         print("Mean_amplitude", amplitude := pipeline.get_features()["Mean_amplitude"])  # type: ignore
         print("Highest_amplitude", highest_amplitude := pipeline.get_features()["Highest_amplitude"])  # type: ignore
         print("Lowest_amplitude", lowest_amplitude := pipeline.get_features()["Lowest_amplitude"])  # type: ignore
         duration = len(signal) / pipeline.sample_rate # type: ignore
         print(f"Duration: {duration:.2f} seconds")  # type: ignore
         print(type(pipeline.signal))
+        print(pipeline.fourier_transform())  # type: ignore
+        pipeline.get_bands()  # type: ignore
+        print(pipeline.get_bands())  # type: ignore
     except NotImplementedError:
         print(NOT_IMPLEMENTED_MESSAGE)
         feature_source = lambda: {}
