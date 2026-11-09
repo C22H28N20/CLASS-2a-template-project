@@ -39,6 +39,20 @@ class AudioPipeline:
     def get_rms(self) -> float:
         return float(np.sqrt(np.mean(np.square(self.get_window()))))
 
+    def get_centroid(self) -> float:
+        ft = self.fourier_transform()
+        freqs = ft["bins"]
+        spectrum = ft["spectrum"]
+        total_energy = np.sum(spectrum)
+        if total_energy == 0:
+            return 0.0
+        return float(np.sum(freqs * spectrum) / total_energy)
+
+    def get_onset(self) -> float:
+        ft = self.fourier_transform()
+        spectrum = ft["spectrum"]
+        return float(np.sum(np.diff(spectrum)))
+
     def get_tempo(self) -> None:
         if not self._reported_window:
             print(f"Peak: {self.get_peak():.6f} | RMS: {self.get_rms():.6f}")
@@ -113,6 +127,8 @@ class AudioPipeline:
             "bass": bands["bass"],
             "mid": bands["mid"],
             "treble": bands["treble"],
+            "centroid": self.get_centroid(),
+            "onset": self.get_onset(),
         }
 
         # Advance only after all features are computed, then wrap if the
