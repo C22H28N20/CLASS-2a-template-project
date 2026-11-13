@@ -16,6 +16,11 @@ class AudioPipeline:
             "low_hz": 250,
             "high_hz": 2000,
         }
+        self.band_peaks = {
+            "bass": 0.0,
+            "mid": 0.0,
+            "treble": 0.0,
+        }
 
     def load(self) -> np.ndarray:
         """Load the audio file at self.file_path via librosa, at
@@ -26,6 +31,7 @@ class AudioPipeline:
             self.position = len(self.signal) // 2  # Start reading from the middle of the signal
         else:
             print("Signal already loaded, skipping load.")
+        self.band_peaks = self.get_bands_peak()
         return self.signal
 
     def get_window(self) -> np.ndarray:
@@ -36,6 +42,7 @@ class AudioPipeline:
     def get_peak(self) -> float:
         return float(np.max(np.abs(self.get_window())))
 
+        
     def get_rms(self) -> float:
         return float(np.sqrt(np.mean(np.square(self.get_window()))))
 
@@ -78,6 +85,29 @@ class AudioPipeline:
             "bins": freqs,
         }
 
+    def get_bands_peak(self) -> dict:
+        peaks = {"bass": 0.0, "mid": 0.0, "treble": 0.0}
+        if self.signal is None:
+            raise ValueError("Signal not loaded. Call load() first.")
+        low_hz = self.bandlimits["low_hz"]
+        high_hz = self.bandlimits["high_hz"]
+        N_windows = len(self.signal) // (self.window_size * 4)
+        for i in range(N_windows): 
+            current_window = self.signal[i * self.window_size:(i + 1) * self.window_size]
+            spectrum: np.ndarray = np.abs(np.fft.rfft(current_window))  # magnitude per bin
+            bins: np.ndarray = np.fft.rfftfreq(self.window_size, d=1 / self.sample_rate)  # Hz per bin
+            power = spectrum ** 2  # energy per bin
+            bass = float(np.sum(power[bins < low_hz]))
+            mid = float(np.sum(power[(bins >= low_hz) & (bins < high_hz)]))
+            treble = float(np.sum(power[bins >= high_hz]))
+            peaks["bass"] = max(peaks["bass"], bass)
+            peaks["mid"] = max(peaks["mid"], mid)
+            peaks["treble"] = max(peaks["treble"], treble)
+
+        return peaks
+            
+
+
     def get_bands(self) -> dict:
         """Relative energy in bass / mid / treble. The three values sum to 1."""
         low_hz = self.bandlimits["low_hz"]
@@ -87,13 +117,12 @@ class AudioPipeline:
         freqs = ft["bins"]
         power = ft["spectrum"] ** 2  # energy per bin
 
-        bass = float(np.sum(power[freqs < low_hz]))
-        mid = float(np.sum(power[(freqs >= low_hz) & (freqs < high_hz)]))
-        treble = float(np.sum(power[freqs >= high_hz]))
-
-        total = bass + mid + treble
-        if total > 0:
-            bass, mid, treble = bass / total, mid / total, treble / total
+        bass = float(np.sum(power[freqs < low_hz])) / self.band_peaks["bass"] if self.band_peaks["bass"] > 0 else 1.0
+        mid = float(np.sum(power[(freqs >= low_hz) & (freqs < high_hz)])) / self.band_peaks["mid"] if self.band_peaks["mid"] > 0 else 1.0
+        treble = float(np.sum(power[freqs >= high_hz])) / self.band_peaks["treble"] if self.band_peaks["treble"] > 0 else 1.0
+        bass = min(max(bass, 0.0), 1.0)
+        mid = min(max(mid, 0.0), 1.0)
+        treble = min(max(treble, 0.0), 1.0)
 
         return {
             "bass": bass,

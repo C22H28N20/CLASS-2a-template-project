@@ -6,7 +6,7 @@ from pyglet.window import key, mouse
 from engines.base_engine import BACKGROUND_COLOR, BaseEngine
 
 _BG = tuple(c / 255 for c in BACKGROUND_COLOR) + (1.0,)
-AUDIO_FILE = "audio/power.mp3"
+AUDIO_FILE = "audio/smith.mp3"
 CALM_DARK = (8, 28, 70)
 CALM_LIGHT = (35, 120, 185)
 ENERGETIC_DARK = (5, 125, 145)

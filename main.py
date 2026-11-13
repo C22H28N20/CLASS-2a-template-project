@@ -16,7 +16,7 @@ from engines.pyglet_engine import PygletEngine
 # how/why this is a one-time project decision, not a runtime toggle.
 ENGINE: type[BaseEngine] = PygletEngine
 
-AUDIO_FILE = "audio/audio (2).mp3"
+AUDIO_FILE = "audio/smith.mp3"
 WINDOW_WIDTH = 1600
 WINDOW_HEIGHT = 900
 WINDOW_TITLE = "CLASS-2a Project"
