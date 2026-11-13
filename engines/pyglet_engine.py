@@ -6,7 +6,7 @@ from pyglet.window import key, mouse
 from engines.base_engine import BACKGROUND_COLOR, BaseEngine
 
 _BG = tuple(c / 255 for c in BACKGROUND_COLOR) + (1.0,)
-AUDIO_FILE = "audio/audio (2).mp3"
+AUDIO_FILE = "audio/power.mp3"
 CALM_DARK = (8, 28, 70)
 CALM_LIGHT = (35, 120, 185)
 ENERGETIC_DARK = (5, 125, 145)
@@ -151,7 +151,7 @@ class PygletEngine(BaseEngine):
         self._colour_drive += (colour_target - self._colour_drive) * 0.12
         self._treble_pulse += (
             band_levels["treble"] - self._treble_pulse
-        ) * 0.2
+        ) * 0.7
         dark_colour = tuple(
             round(calm + (energetic - calm) * self._colour_drive)
             for calm, energetic in zip(CALM_DARK, ENERGETIC_DARK)
@@ -163,7 +163,7 @@ class PygletEngine(BaseEngine):
         bass_rise = max(0.0, band_levels["bass"] - self._previous_bass)
         amplitude_rise = max(0.0, amplitude - self._previous_amplitude)
         kick = min(1.0, bass_rise * 3.5 + amplitude_rise * 2.0)
-        self._kick_strength = max(kick, self._kick_strength * 0.82)
+        self._kick_strength = max(kick, self._kick_strength * 0.65)
         self._previous_bass = band_levels["bass"]
         self._previous_amplitude = amplitude
         self._wave_phase += 0.075
@@ -201,7 +201,7 @@ class PygletEngine(BaseEngine):
             target_height = (
                 audio_drive
                 * band_drive
-                * (0.15 + wave * 0.85 + kick_spike * 1.8)
+                * (0.15 + wave * 0.8 + kick_spike * 1.5)
                 * self._max_bar_height
             )
             target_height = min(target_height, self._max_bar_height)
@@ -215,7 +215,7 @@ class PygletEngine(BaseEngine):
                 for dark, light in zip(dark_colour, light_colour)
             )
             color = tuple(
-                round(base + (highlight - base) * self._treble_pulse * 0.65)
+                round(base + (highlight - base) * self._treble_pulse * 0.5)
                 for base, highlight in zip(base_color, TREBLE_HIGHLIGHT)
             )
             wave_points.append((x, self._bar_y + height, color))
