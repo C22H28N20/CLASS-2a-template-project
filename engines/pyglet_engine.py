@@ -12,7 +12,7 @@ CALM_LIGHT = (35, 120, 185)
 ENERGETIC_DARK = (5, 125, 145)
 ENERGETIC_LIGHT = (190, 255, 235)
 TREBLE_HIGHLIGHT = (255, 245, 180)
-WAVE_POINTS = 96
+WAVE_POINTS = 128
 BAND_CENTERS = (0.17, 0.5, 0.83)
 BAND_SMOOTHING = 0.2
 SLIDER_MIN_GAIN = 0.0
@@ -166,7 +166,8 @@ class PygletEngine(BaseEngine):
         self._kick_strength = max(kick, self._kick_strength * 0.82)
         self._previous_bass = band_levels["bass"]
         self._previous_amplitude = amplitude
-        self._wave_phase += 0.075
+        wave_speed = 0.035 + audio_drive * 0.09 + band_levels["bass"] * 0.05
+        self._wave_phase += wave_speed
 
         wave_points = []
         for index in range(WAVE_POINTS):
@@ -187,31 +188,36 @@ class PygletEngine(BaseEngine):
                 )
             ) / weight_total
 
-            wave = (
-                math.sin(self._wave_phase + position * math.tau * 1.5) * 0.55
-                + math.sin(self._wave_phase * 0.7 + position * math.tau * 3) * 0.3
-                + 0.75
+            swell = math.sin(
+                self._wave_phase + position * math.tau * 1.2
             )
-            wave = max(0.0, min(1.0, wave))
-            band_drive = min(1.0, math.sqrt(band_level) * 1.15)
+            ripple = math.sin(
+                self._wave_phase * 1.35 + position * math.tau * 2.8
+            )
+            fine_ripple = math.sin(
+                self._wave_phase * 2.1 + position * math.tau * 5.5
+            )
+            surface_shape = swell * 0.62 + ripple * 0.28 + fine_ripple * 0.1
+            wave = 0.5 + surface_shape * 0.5
+            band_drive = min(1.0, math.sqrt(band_level) * 1.25)
             kick_position = math.exp(
                 -((position - 0.17) / 0.09) ** 2
             )
             kick_spike = self._kick_strength * kick_position
-            target_height = (
+            swell_height = (
                 audio_drive
-                * band_drive
-                * (0.15 + wave * 0.85 + kick_spike * 1.8)
+                * (0.08 + band_drive * 0.5 + kick_spike * 0.9)
                 * self._max_bar_height
             )
-            target_height = min(target_height, self._max_bar_height)
+            target_height = swell_height * (0.62 + surface_shape * 0.72)
+            target_height = max(0.0, min(target_height, self._max_bar_height))
             response_rate = 0.32 if target_height > self._wave_heights[index] else 0.18
             self._wave_heights[index] += (
                 target_height - self._wave_heights[index]
             ) * response_rate
             height = self._wave_heights[index]
             base_color = tuple(
-                round(dark + (light - dark) * wave)
+                round(dark + (light - dark) * max(0.0, wave))
                 for dark, light in zip(dark_colour, light_colour)
             )
             color = tuple(
