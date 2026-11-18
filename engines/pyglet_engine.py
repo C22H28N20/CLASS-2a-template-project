@@ -38,10 +38,96 @@ class PygletEngine(BaseEngine):
         self._colour_drive = 0.0
         self._treble_pulse = 0.0
         self._frequency_gain = 1.0
+        self._band_gain = {"bass": 1.0, "mid": 1.0, "treble": 1.0}
+        self._audio_volume = 0.5
+        self._pitch = 1.0
+        self._muted = False
         self._slider_colour_drive = 0.5
         self._slider_dragging = False
         self._wave_batch = pyglet.graphics.Batch()
         self._ui_batch = pyglet.graphics.Batch()
+        stats_panel_x = 10
+        stats_panel_y = self.height - 220
+        stats_panel_width = 390
+        stats_panel_height = 210
+        self._stats_title = pyglet.text.Label(
+            "AUDIO STATISTICS",
+            x=stats_panel_x + 10,
+            y=self.height - 58,
+            font_size=15,
+            color=(235, 245, 255, 255),
+            batch=self._ui_batch,
+        )
+        self._track_label = pyglet.text.Label(
+            "smith.mp3",
+            x=10,
+            y=self.height - 36,
+            font_size=20,
+            color=(245, 250, 255, 255),
+            batch=self._ui_batch,
+        )
+        self._time_label = pyglet.text.Label(
+            "00:00 / 00:00",
+            x=10,
+            y=self.height - 82,
+            font_size=12,
+            color=(210, 230, 245, 255),
+            batch=self._ui_batch,
+        )
+
+        stat_names = ("BASS", "MID", "TREBLE", "CENTROID", "ONSET")
+        stat_colours = (
+            (255, 70, 145),
+            (70, 210, 255),
+            (255, 235, 100),
+            (255, 210, 95),
+            (190, 220, 255),
+        )
+        self._stat_names = []
+        self._stat_values = []
+        self._stat_bar_backgrounds = []
+        self._stat_bars = []
+        self._stat_colours = stat_colours
+
+        for index, name in enumerate(stat_names):
+            row_y = self.height - 112 - index * 31
+            name_label = pyglet.text.Label(
+                name,
+                x=stats_panel_x + 12,
+                y=row_y,
+                font_size=11,
+                color=stat_colours[index] + (255,),
+                batch=self._ui_batch,
+            )
+            value_label = pyglet.text.Label(
+                "0.00",
+                x=stats_panel_x + 126,
+                y=row_y,
+                font_size=11,
+                anchor_x="right",
+                color=(235, 245, 255, 255),
+                batch=self._ui_batch,
+            )
+            bar_background = pyglet.shapes.Rectangle(
+                stats_panel_x + 138,
+                row_y - 5,
+                115,
+                10,
+                color=(70, 90, 115),
+                batch=self._ui_batch,
+            )
+            bar = pyglet.shapes.Rectangle(
+                stats_panel_x + 138,
+                row_y - 5,
+                1,
+                10,
+                color=stat_colours[index],
+                batch=self._ui_batch,
+            )
+            self._stat_names.append(name_label)
+            self._stat_values.append(value_label)
+            self._stat_bar_backgrounds.append(bar_background)
+            self._stat_bars.append(bar)
         self._slider_left = self.width * 0.25
         self._slider_width = self.width * 0.5
         self._slider_y = self.height - 36
@@ -66,6 +152,15 @@ class PygletEngine(BaseEngine):
             y=self._slider_y + 22,
             anchor_x="center",
             color=(220, 240, 245, 255),
+            batch=self._ui_batch,
+        )
+        self._controls_label = pyglet.text.Label(
+            "UP/DOWN volume | LEFT/RIGHT pitch | 1 bass | 2 mid | 3 treble | R reset | SPACE mute",
+            x=self.width / 2,
+            y=14,
+            anchor_x="center",
+            font_size=11,
+            color=(225, 242, 250, 255),
             batch=self._ui_batch,
         )
         self._wave_triangles = [
@@ -98,6 +193,36 @@ class PygletEngine(BaseEngine):
             if symbol == key.ESCAPE:
                 self._should_close = True
                 return pyglet.event.EVENT_HANDLED
+            if symbol == key.UP:
+                self._audio_volume = min(1.0, self._audio_volume + 0.1)
+                self._muted = False
+                self.audio_player.volume = self._audio_volume
+            elif symbol == key.DOWN:
+                self._audio_volume = max(0.0, self._audio_volume - 0.1)
+                self.audio_player.volume = self._audio_volume
+            elif symbol == key.LEFT:
+                self._pitch = max(0.5, self._pitch - 0.1)
+                self.audio_player.pitch = self._pitch
+            elif symbol == key.RIGHT:
+                self._pitch = min(2.0, self._pitch + 0.1)
+                self.audio_player.pitch = self._pitch
+            elif symbol == key._1:
+                self._band_gain["bass"] = 1.0 if self._band_gain["bass"] > 1.0 else 1.8
+            elif symbol == key._2:
+                self._band_gain["mid"] = 1.0 if self._band_gain["mid"] > 1.0 else 1.8
+            elif symbol == key._3:
+                self._band_gain["treble"] = 1.0 if self._band_gain["treble"] > 1.0 else 1.8
+            elif symbol == key.SPACE:
+                self._muted = not self._muted
+                self.audio_player.volume = 0.0 if self._muted else self._audio_volume
+            elif symbol == key.R:
+                self._audio_volume = 0.5
+                self._pitch = 1.0
+                self._band_gain = {"bass": 1.0, "mid": 1.0, "treble": 1.0}
+                self._muted = False
+                self.audio_player.volume = self._audio_volume
+                self.audio_player.pitch = self._pitch
+            self._update_controls_label()
 
         @self.window.event
         def on_mouse_press(x, y, button, modifiers):
@@ -123,11 +248,26 @@ class PygletEngine(BaseEngine):
             + position * (SLIDER_MAX_GAIN - SLIDER_MIN_GAIN)
         )
         self._slider_colour_drive = position
-        self.audio_player.volume = min(1.0, self._frequency_gain * 0.5)
+        self._audio_volume = min(1.0, self._frequency_gain * 0.5)
+        self._muted = False
+        self.audio_player.volume = self._audio_volume
         self._slider_knob.x = self._slider_left + position * self._slider_width
         self._slider_label.text = (
             f"Frequency boost: {self._frequency_gain:.2f}x | "
             f"Volume: {self.audio_player.volume:.0%}"
+        )
+        self._update_controls_label()
+
+    def _update_controls_label(self) -> None:
+        bass = "ON" if self._band_gain["bass"] > 1.0 else "OFF"
+        mid = "ON" if self._band_gain["mid"] > 1.0 else "OFF"
+        treble = "ON" if self._band_gain["treble"] > 1.0 else "OFF"
+        mute = "MUTE" if self._muted else "SOUND"
+        self._controls_label.text = (
+            f"UP/DOWN volume {int(self._audio_volume * 100)}% | "
+            f"LEFT/RIGHT pitch {self._pitch:.1f}x | "
+            f"1 bass {bass} | 2 mid {mid} | 3 treble {treble} | "
+            f"R reset | SPACE {mute}"
         )
 
     def handle_events(self) -> bool:
@@ -142,11 +282,45 @@ class PygletEngine(BaseEngine):
         band_levels = {
             band: min(
                 1.0,
-                max(0.0, float(audio_features.get(band, 0.0)) * self._frequency_gain),
+                max(
+                    0.0,
+                    float(audio_features.get(band, 0.0))
+                    * self._frequency_gain
+                    * self._band_gain[band],
+                ),
             )
             for band in ("bass", "mid", "treble")
         }
+        centroid = float(audio_features.get("centroid", 0.0))
+        centroid_display = min(1.0, centroid / 22050.0)
+        onset = float(audio_features.get("onset", 0.0))
+        onset_display = min(1.0, abs(onset) / 100.0)
+        stat_values = (
+            band_levels["bass"],
+            band_levels["mid"],
+            band_levels["treble"],
+            centroid_display,
+            onset_display,
+        )
+        for value_label, bar, stat_value in zip(
+            self._stat_values,
+            self._stat_bars,
+            stat_values,
+        ):
+            stat_value = min(1.0, max(0.0, stat_value))
+            value_label.text = f"{stat_value:.2f}"
+            bar.width = max(1.0, 115 * stat_value)
+
+        elapsed_seconds = int(round(self.audio_player.time))
+        elapsed_minutes, elapsed_remainder = divmod(elapsed_seconds, 60)
+        total_seconds = int(self.audio_source.duration)
+        total_minutes, total_remainder = divmod(total_seconds, 60)
+        self._time_label.text = (
+            f"{elapsed_minutes:02d}:{elapsed_remainder:02d} / "
+            f"{total_minutes:02d}:{total_remainder:02d}"
+        )
         audio_drive = min(1.0, math.sqrt(amplitude) * 1.25)
+        audio_drive = min(1.0, audio_drive * 1.35)
         colour_target = audio_drive * 0.7 + self._slider_colour_drive * 0.3
         self._colour_drive += (colour_target - self._colour_drive) * 0.12
         self._treble_pulse += (
@@ -166,7 +340,11 @@ class PygletEngine(BaseEngine):
         self._kick_strength = max(kick, self._kick_strength * 0.65)
         self._previous_bass = band_levels["bass"]
         self._previous_amplitude = amplitude
-        wave_speed = 0.035 + audio_drive * 0.09 + band_levels["bass"] * 0.05
+        wave_speed = (
+            0.035
+            + audio_drive * 0.09
+            + band_levels["bass"] * 0.05
+        ) * self._pitch
         self._wave_phase += wave_speed
 
         wave_points = []
@@ -199,7 +377,7 @@ class PygletEngine(BaseEngine):
             )
             surface_shape = swell * 0.62 + ripple * 0.28 + fine_ripple * 0.1
             wave = 0.5 + surface_shape * 0.5
-            band_drive = min(1.0, math.sqrt(band_level) * 1.25)
+            band_drive = min(1.0, math.sqrt(band_level) * 1.55)
             kick_position = math.exp(
                 -((position - 0.17) / 0.09) ** 2
             )
@@ -210,9 +388,14 @@ class PygletEngine(BaseEngine):
                 * (0.15 + wave * 0.85 + kick_spike * 1.8)
                 * self._max_bar_height
             )
+            baseline_swell = (
+                self._max_bar_height
+                * (0.07 + abs(surface_shape) * 0.14)
+            )
+            swell_height += baseline_swell
             target_height = swell_height * (0.62 + surface_shape * 0.72)
             target_height = max(0.0, min(target_height, self._max_bar_height))
-            response_rate = 0.32 if target_height > self._wave_heights[index] else 0.18
+            response_rate = 0.48 if target_height > self._wave_heights[index] else 0.28
             self._wave_heights[index] += (
                 target_height - self._wave_heights[index]
             ) * response_rate

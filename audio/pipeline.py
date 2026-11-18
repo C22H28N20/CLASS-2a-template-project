@@ -1,5 +1,6 @@
 import librosa
 import numpy as np
+import time
 
 
 class AudioPipeline:
@@ -12,6 +13,7 @@ class AudioPipeline:
         self.signal = signal
         self._reported_window = False
         self.position = 0  # Current read position in the signal, in samples
+        self._playback_started_at: float | None = None
         self.bandlimits = {
             "low_hz": 250,
             "high_hz": 2000,
@@ -28,7 +30,7 @@ class AudioPipeline:
         """
         if self.signal is None:
             self.signal, _ = librosa.load(self.file_path, sr=self.sample_rate)
-            self.position = len(self.signal) // 2  # Start reading from the middle of the signal
+            self.position = 0
         else:
             print("Signal already loaded, skipping load.")
         self.band_peaks = self.get_bands_peak()
@@ -140,9 +142,12 @@ class AudioPipeline:
         if len(self.signal) < self.window_size:
             raise ValueError(f"The signal must contain at least {self.window_size} samples.")
 
-        # Safety net: if position is somehow out of range, restart from the beginning
-        if self.position + self.window_size > len(self.signal):
-            self.position = 0
+        if self._playback_started_at is None:
+            self._playback_started_at = time.perf_counter()
+
+        elapsed = time.perf_counter() - self._playback_started_at
+        max_start = len(self.signal) - self.window_size
+        self.position = int(elapsed * self.sample_rate) % (max_start + 1)
 
         window = self.get_window()
         bands = self.get_bands()  # one FFT per frame
@@ -159,11 +164,5 @@ class AudioPipeline:
             "centroid": self.get_centroid(),
             "onset": self.get_onset(),
         }
-
-        # Advance only after all features are computed, then wrap if the
-        # next full window wouldn't fit
-        self.position += self.window_size
-        if self.position + self.window_size > len(self.signal):
-            self.position = 0
 
         return features
