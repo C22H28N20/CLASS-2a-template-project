@@ -1,11 +1,9 @@
-"""Wires the audio pipeline and rendering engine together and runs the app.
-
-ENGINE and AUDIO_FILE are fixed, version-controlled choices, not runtime
-options — committing to one engine tier and one audio file is a project
-decision, not something to toggle per run.
-"""
+"""Wires the selected audio file and rendering engine together and runs the app."""
 
 from collections.abc import Callable
+from pathlib import Path
+import tkinter as tk
+from tkinter import filedialog
 import numpy as np
 from audio.pipeline import AudioPipeline
 from engines.base_engine import BaseEngine
@@ -23,6 +21,22 @@ WINDOW_TITLE = "CLASS-2a Project"
 TARGET_FPS = 60
 
 
+def choose_audio_file() -> str | None:
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    selected = filedialog.askopenfilename(
+        title="Choose an audio file",
+        initialdir=str(Path(AUDIO_FILE).resolve().parent),
+        filetypes=[
+            ("Audio files", "*.mp3 *.wav *.ogg *.flac *.m4a *.aac *.aiff"),
+            ("All files", "*.*"),
+        ],
+    )
+    root.destroy()
+    return selected or None
+
+
 def run_engine_only() -> None:
     """Runs the chosen engine with no audio pipeline involved.
 
@@ -30,7 +44,18 @@ def run_engine_only() -> None:
     already falls back to a blank feature source until AudioPipeline is
     implemented, so you don't need this to get started.
     """
-    engine = ENGINE(width=WINDOW_WIDTH, height=WINDOW_HEIGHT, title=WINDOW_TITLE, target_fps=TARGET_FPS)
+    audio_file = choose_audio_file()
+    if audio_file is None:
+        print("No audio file selected.")
+        return
+
+    engine = ENGINE(
+        width=WINDOW_WIDTH,
+        height=WINDOW_HEIGHT,
+        title=WINDOW_TITLE,
+        target_fps=TARGET_FPS,
+        audio_file=audio_file,
+    )
     engine.run(feature_source=lambda: {})
 
 
@@ -60,9 +85,25 @@ def tolerate_not_implemented(get_features: Callable[[], dict]) -> Callable[[], d
 
 
 def run_full_app():
-    engine = ENGINE(width=WINDOW_WIDTH, height=WINDOW_HEIGHT, title=WINDOW_TITLE, target_fps=TARGET_FPS)
+    audio_file = choose_audio_file()
+    if audio_file is None:
+        print("No audio file selected.")
+        return
 
-    pipeline = AudioPipeline(file_path=AUDIO_FILE)
+    engine = ENGINE(
+        width=WINDOW_WIDTH,
+        height=WINDOW_HEIGHT,
+        title=WINDOW_TITLE,
+        target_fps=TARGET_FPS,
+        audio_file=audio_file,
+    )
+
+    pipeline = AudioPipeline(file_path=audio_file)
+    if hasattr(engine, "set_playback_callbacks"):
+        engine.set_playback_callbacks(
+            pipeline.set_playback_paused,
+            pipeline.set_playback_speed,
+        )
     feature_source = tolerate_not_implemented(pipeline.get_features)
     try:
         signal = pipeline.load()

@@ -1,8 +1,9 @@
 from abc import abstractmethod
 import math
+from pathlib import Path
 import pyglet
 from pyglet.gl import glClearColor
-from pyglet.window import key, mouse
+from pyglet.window import key
 from engines.base_engine import BACKGROUND_COLOR, BaseEngine
 
 _BG = tuple(c / 255 for c in BACKGROUND_COLOR) + (1.0,)
@@ -15,11 +16,23 @@ TREBLE_HIGHLIGHT = (255, 245, 180)
 WAVE_POINTS = 128
 BAND_CENTERS = (0.17, 0.5, 0.83)
 BAND_SMOOTHING = 0.2
-SLIDER_MIN_GAIN = 0.0
-SLIDER_MAX_GAIN = 2.0
+MIN_BAND_GAIN = 0.0
+MAX_BAND_GAIN = 2.0
+BAND_GAIN_STEP = 0.1
 
 
 class PygletEngine(BaseEngine):
+    def __init__(
+        self,
+        width: int,
+        height: int,
+        title: str,
+        target_fps: int = 60,
+        audio_file: str = AUDIO_FILE,
+    ) -> None:
+        super().__init__(width, height, title, target_fps)
+        self.audio_file = audio_file
+
     def setup(self) -> None:
         self.window = pyglet.window.Window(self.width, self.height, caption=self.title)
         self._should_close = False
@@ -37,13 +50,12 @@ class PygletEngine(BaseEngine):
         self._kick_strength = 0.0
         self._colour_drive = 0.0
         self._treble_pulse = 0.0
-        self._frequency_gain = 1.0
         self._band_gain = {"bass": 1.0, "mid": 1.0, "treble": 1.0}
-        self._audio_volume = 0.5
+        self._selected_band = "bass"
         self._pitch = 1.0
-        self._muted = False
-        self._slider_colour_drive = 0.5
-        self._slider_dragging = False
+        self._paused = False
+        self._pause_playback_callback = None
+        self._set_playback_speed_callback = None
         self._wave_batch = pyglet.graphics.Batch()
         self._ui_batch = pyglet.graphics.Batch()
         stats_panel_x = 10
@@ -59,7 +71,7 @@ class PygletEngine(BaseEngine):
             batch=self._ui_batch,
         )
         self._track_label = pyglet.text.Label(
-            "smith.mp3",
+            Path(self.audio_file).name,
             x=10,
             y=self.height - 36,
             font_size=20,
@@ -128,34 +140,17 @@ class PygletEngine(BaseEngine):
             self._stat_values.append(value_label)
             self._stat_bar_backgrounds.append(bar_background)
             self._stat_bars.append(bar)
-        self._slider_left = self.width * 0.25
-        self._slider_width = self.width * 0.5
-        self._slider_y = self.height - 36
-        self._slider_track = pyglet.shapes.Rectangle(
-            self._slider_left,
-            self._slider_y,
-            self._slider_width,
-            6,
-            color=(75, 110, 135),
-            batch=self._ui_batch,
-        )
-        self._slider_knob = pyglet.shapes.Circle(
-            self._slider_left + self._slider_width / 2,
-            self._slider_y + 3,
-            12,
-            color=(190, 255, 235),
-            batch=self._ui_batch,
-        )
-        self._slider_label = pyglet.text.Label(
-            "Frequency boost: 1.00x",
+        self._band_selection_label = pyglet.text.Label(
+            "SELECTED: BASS  |  Gain: 1.00x",
             x=self.width / 2,
-            y=self._slider_y + 22,
+            y=self.height - 36,
             anchor_x="center",
-            color=(220, 240, 245, 255),
+            font_size=13,
+            color=(190, 255, 235, 255),
             batch=self._ui_batch,
         )
         self._controls_label = pyglet.text.Label(
-            "UP/DOWN volume | LEFT/RIGHT pitch | 1 bass | 2 mid | 3 treble | R reset | SPACE mute",
+            "1 bass | 2 mid | 3 treble | UP/DOWN selected boost | LEFT/RIGHT pitch | SPACE pause",
             x=self.width / 2,
             y=14,
             anchor_x="center",
@@ -172,7 +167,7 @@ class PygletEngine(BaseEngine):
         ]
 
         self.audio_player = pyglet.media.Player()
-        self.audio_source = pyglet.media.load(AUDIO_FILE, streaming=False)
+        self.audio_source = pyglet.media.load(self.audio_file, streaming=False)
         self.audio_player.volume = 0.5
         self.audio_player.queue(self.audio_source)
 
@@ -193,82 +188,60 @@ class PygletEngine(BaseEngine):
             if symbol == key.ESCAPE:
                 self._should_close = True
                 return pyglet.event.EVENT_HANDLED
-            if symbol == key.UP:
-                self._audio_volume = min(1.0, self._audio_volume + 0.1)
-                self._muted = False
-                self.audio_player.volume = self._audio_volume
+            if symbol == key._1:
+                self._selected_band = "bass"
+            elif symbol == key._2:
+                self._selected_band = "mid"
+            elif symbol == key._3:
+                self._selected_band = "treble"
+            elif symbol == key.UP:
+                gain = self._band_gain[self._selected_band]
+                self._band_gain[self._selected_band] = min(
+                    MAX_BAND_GAIN,
+                    round(gain + BAND_GAIN_STEP, 1),
+                )
             elif symbol == key.DOWN:
-                self._audio_volume = max(0.0, self._audio_volume - 0.1)
-                self.audio_player.volume = self._audio_volume
+                gain = self._band_gain[self._selected_band]
+                self._band_gain[self._selected_band] = max(
+                    MIN_BAND_GAIN,
+                    round(gain - BAND_GAIN_STEP, 1),
+                )
             elif symbol == key.LEFT:
                 self._pitch = max(0.5, self._pitch - 0.1)
                 self.audio_player.pitch = self._pitch
+                if self._set_playback_speed_callback is not None:
+                    self._set_playback_speed_callback(self._pitch)
             elif symbol == key.RIGHT:
                 self._pitch = min(2.0, self._pitch + 0.1)
                 self.audio_player.pitch = self._pitch
-            elif symbol == key._1:
-                self._band_gain["bass"] = 1.0 if self._band_gain["bass"] > 1.0 else 1.8
-            elif symbol == key._2:
-                self._band_gain["mid"] = 1.0 if self._band_gain["mid"] > 1.0 else 1.8
-            elif symbol == key._3:
-                self._band_gain["treble"] = 1.0 if self._band_gain["treble"] > 1.0 else 1.8
+                if self._set_playback_speed_callback is not None:
+                    self._set_playback_speed_callback(self._pitch)
             elif symbol == key.SPACE:
-                self._muted = not self._muted
-                self.audio_player.volume = 0.0 if self._muted else self._audio_volume
-            elif symbol == key.R:
-                self._audio_volume = 0.5
-                self._pitch = 1.0
-                self._band_gain = {"bass": 1.0, "mid": 1.0, "treble": 1.0}
-                self._muted = False
-                self.audio_player.volume = self._audio_volume
-                self.audio_player.pitch = self._pitch
+                self._paused = not self._paused
+                if self._paused:
+                    self.audio_player.pause()
+                else:
+                    self.audio_player.play()
+                if self._pause_playback_callback is not None:
+                    self._pause_playback_callback(self._paused)
             self._update_controls_label()
 
-        @self.window.event
-        def on_mouse_press(x, y, button, modifiers):
-            if button == mouse.LEFT and self._slider_y - 16 <= y <= self._slider_y + 22:
-                self._slider_dragging = True
-                self._set_frequency_gain(x)
-
-        @self.window.event
-        def on_mouse_drag(x, y, dx, dy, buttons, modifiers):
-            if self._slider_dragging and buttons & mouse.LEFT:
-                self._set_frequency_gain(x)
-
-        @self.window.event
-        def on_mouse_release(x, y, button, modifiers):
-            if button == mouse.LEFT:
-                self._slider_dragging = False
-
-    def _set_frequency_gain(self, x: float) -> None:
-        position = (x - self._slider_left) / self._slider_width
-        position = min(1.0, max(0.0, position))
-        self._frequency_gain = (
-            SLIDER_MIN_GAIN
-            + position * (SLIDER_MAX_GAIN - SLIDER_MIN_GAIN)
-        )
-        self._slider_colour_drive = position
-        self._audio_volume = min(1.0, self._frequency_gain * 0.5)
-        self._muted = False
-        self.audio_player.volume = self._audio_volume
-        self._slider_knob.x = self._slider_left + position * self._slider_width
-        self._slider_label.text = (
-            f"Frequency boost: {self._frequency_gain:.2f}x | "
-            f"Volume: {self.audio_player.volume:.0%}"
-        )
-        self._update_controls_label()
-
     def _update_controls_label(self) -> None:
-        bass = "ON" if self._band_gain["bass"] > 1.0 else "OFF"
-        mid = "ON" if self._band_gain["mid"] > 1.0 else "OFF"
-        treble = "ON" if self._band_gain["treble"] > 1.0 else "OFF"
-        mute = "MUTE" if self._muted else "SOUND"
-        self._controls_label.text = (
-            f"UP/DOWN volume {int(self._audio_volume * 100)}% | "
-            f"LEFT/RIGHT pitch {self._pitch:.1f}x | "
-            f"1 bass {bass} | 2 mid {mid} | 3 treble {treble} | "
-            f"R reset | SPACE {mute}"
+        selected_name = self._selected_band.upper()
+        gain = self._band_gain[self._selected_band]
+        playback = "PAUSED" if self._paused else "PLAYING"
+        self._band_selection_label.text = (
+            f"SELECTED: {selected_name}  |  Gain: {gain:.2f}x  |  "
+            f"Pitch: {self._pitch:.1f}x  |  {playback}"
         )
+        self._controls_label.text = (
+            "1 bass | 2 mid | 3 treble | "
+            "UP/DOWN selected boost | LEFT/RIGHT pitch | SPACE pause/play"
+        )
+
+    def set_playback_callbacks(self, pause_callback, speed_callback) -> None:
+        self._pause_playback_callback = pause_callback
+        self._set_playback_speed_callback = speed_callback
 
     def handle_events(self) -> bool:
         # BaseEngine.run() owns the loop, so events are dispatched manually
@@ -277,7 +250,18 @@ class PygletEngine(BaseEngine):
         return not self._should_close
 
     def update(self, audio_features: dict) -> None:
-        amplitude = float(audio_features.get("peak", 0.0)) * self._frequency_gain
+        if self._paused:
+            elapsed_seconds = int(round(self.audio_player.time))
+            elapsed_minutes, elapsed_remainder = divmod(elapsed_seconds, 60)
+            total_seconds = int(self.audio_source.duration)
+            total_minutes, total_remainder = divmod(total_seconds, 60)
+            self._time_label.text = (
+                f"{elapsed_minutes:02d}:{elapsed_remainder:02d} / "
+                f"{total_minutes:02d}:{total_remainder:02d}"
+            )
+            return
+
+        amplitude = float(audio_features.get("peak", 0.0))
         amplitude = min(1.0, max(0.0, amplitude))
         band_levels = {
             band: min(
@@ -285,7 +269,6 @@ class PygletEngine(BaseEngine):
                 max(
                     0.0,
                     float(audio_features.get(band, 0.0))
-                    * self._frequency_gain
                     * self._band_gain[band],
                 ),
             )
@@ -321,7 +304,11 @@ class PygletEngine(BaseEngine):
         )
         audio_drive = min(1.0, math.sqrt(amplitude) * 1.25)
         audio_drive = min(1.0, audio_drive * 1.35)
-        colour_target = audio_drive * 0.7 + self._slider_colour_drive * 0.3
+        average_gain = sum(self._band_gain.values()) / len(self._band_gain)
+        gain_colour_drive = (average_gain - MIN_BAND_GAIN) / (
+            MAX_BAND_GAIN - MIN_BAND_GAIN
+        )
+        colour_target = audio_drive * 0.7 + gain_colour_drive * 0.3
         self._colour_drive += (colour_target - self._colour_drive) * 0.12
         self._treble_pulse += (
             band_levels["treble"] - self._treble_pulse

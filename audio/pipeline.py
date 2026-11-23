@@ -14,6 +14,9 @@ class AudioPipeline:
         self._reported_window = False
         self.position = 0  # Current read position in the signal, in samples
         self._playback_started_at: float | None = None
+        self._playback_elapsed = 0.0
+        self._playback_speed = 1.0
+        self._playback_paused = False
         self.bandlimits = {
             "low_hz": 250,
             "high_hz": 2000,
@@ -40,6 +43,24 @@ class AudioPipeline:
         if self.signal is None:
             raise ValueError("Signal not loaded. Call load() first.")
         return self.signal[self.position:self.position + self.window_size]
+
+    def set_playback_paused(self, paused: bool) -> None:
+        now = time.perf_counter()
+        if paused and not self._playback_paused:
+            if self._playback_started_at is not None:
+                wall_elapsed = now - self._playback_started_at
+                self._playback_elapsed += wall_elapsed * self._playback_speed
+        elif not paused and self._playback_paused:
+            self._playback_started_at = now
+        self._playback_paused = paused
+
+    def set_playback_speed(self, speed: float) -> None:
+        now = time.perf_counter()
+        if not self._playback_paused and self._playback_started_at is not None:
+            wall_elapsed = now - self._playback_started_at
+            self._playback_elapsed += wall_elapsed * self._playback_speed
+            self._playback_started_at = now
+        self._playback_speed = speed
 
     def get_peak(self) -> float:
         return float(np.max(np.abs(self.get_window())))
@@ -142,10 +163,15 @@ class AudioPipeline:
         if len(self.signal) < self.window_size:
             raise ValueError(f"The signal must contain at least {self.window_size} samples.")
 
+        now = time.perf_counter()
         if self._playback_started_at is None:
-            self._playback_started_at = time.perf_counter()
+            self._playback_started_at = now
+        elif not self._playback_paused:
+            wall_elapsed = now - self._playback_started_at
+            self._playback_elapsed += wall_elapsed * self._playback_speed
+            self._playback_started_at = now
 
-        elapsed = time.perf_counter() - self._playback_started_at
+        elapsed = self._playback_elapsed
         max_start = len(self.signal) - self.window_size
         self.position = int(elapsed * self.sample_rate) % (max_start + 1)
 
