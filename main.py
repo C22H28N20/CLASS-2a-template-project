@@ -99,10 +99,12 @@ def run_full_app():
     )
 
     pipeline = AudioPipeline(file_path=audio_file)
-    if hasattr(engine, "set_playback_callbacks"):
-        engine.set_playback_callbacks(
+    set_playback_callbacks = getattr(engine, "set_playback_callbacks", None)
+    if callable(set_playback_callbacks):
+        set_playback_callbacks(
             pipeline.set_playback_paused,
             pipeline.set_playback_speed,
+            pipeline.restart_playback,
         )
     feature_source = tolerate_not_implemented(pipeline.get_features)
     try:

@@ -1,6 +1,7 @@
 from abc import abstractmethod
 import math
 from pathlib import Path
+import time
 import pyglet
 from pyglet.gl import glClearColor
 from pyglet.window import key
@@ -33,6 +34,28 @@ class PygletEngine(BaseEngine):
         super().__init__(width, height, title, target_fps)
         self.audio_file = audio_file
 
+    def restart_audio(self) -> None:
+        now = time.perf_counter()
+        if now - self._last_audio_restart_at < 0.25:
+            return
+        self._last_audio_restart_at = now
+
+        self.audio_player.loop = True
+        self.audio_player.pause()
+        self.audio_player.seek(0)
+        self.audio_player.play()
+
+        if self._restart_playback_callback is not None:
+            self._restart_playback_callback()
+
+        self._wave_phase = 0.0
+        self._wave_heights = [0.0] * WAVE_POINTS
+        self._previous_bass = 0.0
+        self._previous_amplitude = 0.0
+        self._kick_strength = 0.0
+        self._colour_drive = 0.0
+        self._treble_pulse = 0.0
+
     def setup(self) -> None:
         self.window = pyglet.window.Window(self.width, self.height, caption=self.title)
         self._should_close = False
@@ -54,8 +77,10 @@ class PygletEngine(BaseEngine):
         self._selected_band = "bass"
         self._pitch = 1.0
         self._paused = False
+        self._last_audio_restart_at = -1.0
         self._pause_playback_callback = None
         self._set_playback_speed_callback = None
+        self._restart_playback_callback = None
         self._wave_batch = pyglet.graphics.Batch()
         self._ui_batch = pyglet.graphics.Batch()
         stats_panel_x = 10
@@ -169,13 +194,16 @@ class PygletEngine(BaseEngine):
         self.audio_player = pyglet.media.Player()
         self.audio_source = pyglet.media.load(self.audio_file, streaming=False)
         self.audio_player.volume = 0.5
+        self.audio_player.loop = True
         self.audio_player.queue(self.audio_source)
 
         def on_audio_end() -> None:
-            self._should_close = True
+            self.restart_audio()
 
         self.audio_player.push_handlers(on_eos=on_audio_end)
+        self.audio_player.loop = True
         self.audio_player.play()
+        self.audio_player.loop = True
         glClearColor(_BG[0], _BG[1], _BG[2], _BG[3])
 
         @self.window.event
@@ -239,17 +267,31 @@ class PygletEngine(BaseEngine):
             "UP/DOWN selected boost | LEFT/RIGHT pitch | SPACE pause/play"
         )
 
-    def set_playback_callbacks(self, pause_callback, speed_callback) -> None:
+    def set_playback_callbacks(
+        self,
+        pause_callback,
+        speed_callback,
+        restart_callback,
+    ) -> None:
         self._pause_playback_callback = pause_callback
         self._set_playback_speed_callback = speed_callback
+        self._restart_playback_callback = restart_callback
 
     def handle_events(self) -> bool:
         # BaseEngine.run() owns the loop, so events are dispatched manually
         # here each frame rather than handing control to pyglet.app.run().
+        pyglet.clock.tick()
         self.window.dispatch_events()
         return not self._should_close
 
     def update(self, audio_features: dict) -> None:
+        if (
+            not self._paused
+            and self.audio_source.duration is not None
+            and self.audio_player.time >= max(0.0, self.audio_source.duration - 0.05)
+        ):
+            self.restart_audio()
+
         if self._paused:
             elapsed_seconds = int(round(self.audio_player.time))
             elapsed_minutes, elapsed_remainder = divmod(elapsed_seconds, 60)

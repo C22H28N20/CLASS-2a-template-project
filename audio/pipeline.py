@@ -62,6 +62,13 @@ class AudioPipeline:
             self._playback_started_at = now
         self._playback_speed = speed
 
+    def restart_playback(self) -> None:
+        """Restart feature extraction at the beginning of the loaded audio."""
+        now = time.perf_counter()
+        self.position = 0
+        self._playback_elapsed = 0.0
+        self._playback_started_at = None if self._playback_paused else now
+
     def get_peak(self) -> float:
         return float(np.max(np.abs(self.get_window())))
 
